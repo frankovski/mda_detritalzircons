@@ -152,8 +152,13 @@ run_clicked, working_df = render_spreadsheet()
 summary_rows: list = []
 forest_fig = None
 
-if run_clicked:
+# Also trigger computation if PDF was requested and we have cached results
+if run_clicked or st.session_state.get("pdf_requested"):
     if working_df is None or working_df.empty:
+        if st.session_state.get("pdf_requested"):
+            st.info("Click **PLOT** first to generate results, then use PDF to export.")
+            st.session_state["pdf_requested"] = False
+            st.stop()
         st.error("The spreadsheet is empty. Paste data or upload a file first.")
         st.stop()
 

@@ -290,10 +290,13 @@ def _init_grid():
     """Ensure session_state has a grid DataFrame."""
     if "grid_df" not in st.session_state or st.session_state.grid_df is None:
         try:
-            raw = parse_table(st.session_state.get("raw_text", DEFAULT_EXAMPLE))
-            st.session_state.grid_df = _df_to_lettered(raw)
+            st.session_state.grid_df = _df_to_lettered(parse_table(DEFAULT_EXAMPLE))
         except Exception:
             st.session_state.grid_df = _make_empty_grid()
+    # Version counter used to force-reset the data_editor widget when the
+    # grid content is replaced programmatically (Defaults, Clear, Open).
+    if "grid_version" not in st.session_state:
+        st.session_state.grid_version = 0
 
 
 def render_spreadsheet() -> Tuple[bool, Optional[pd.DataFrame]]:
@@ -323,22 +326,26 @@ def render_spreadsheet() -> Tuple[bool, Optional[pd.DataFrame]]:
         st.session_state.show_uploader = False
 
     # ---- Spreadsheet grid ----
+    # Use a versioned key so programmatic grid resets (Defaults, Clear, Open)
+    # actually take effect instead of being overridden by the old widget state.
+    grid_key = f"excel_like_grid_v{st.session_state.grid_version}"
     st.caption("Excel-like input \u2014 click any cell to edit, paste from Excel, or use the toolbar below.")
     st.session_state.grid_df = st.data_editor(
         st.session_state.grid_df,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=False,
-        key="excel_like_grid",
+        key=grid_key,
         height=420,
     )
 
     # ---- File uploader (conditionally shown) ----
     if st.session_state.show_uploader:
+        upload_key = f"file_upload_v{st.session_state.grid_version}"
         uploaded = st.file_uploader(
             "Upload data file",
             type=["csv", "tsv", "txt", "xlsx", "xls"],
-            key="file_upload",
+            key=upload_key,
         )
         if uploaded is not None:
             try:
@@ -348,7 +355,7 @@ def render_spreadsheet() -> Tuple[bool, Optional[pd.DataFrame]]:
                     raw = pd.read_csv(uploaded, sep=None, engine="python")
                 st.session_state.grid_df = _df_to_lettered(raw)
                 st.session_state.show_uploader = False
-                st.toast(f"Loaded {uploaded.name} successfully!", icon="\u2705")
+                st.session_state.grid_version += 1
                 st.rerun()
             except Exception as exc:
                 st.error(f"Could not read file: {exc}")
@@ -359,15 +366,14 @@ def render_spreadsheet() -> Tuple[bool, Optional[pd.DataFrame]]:
 
     with c1:
         if st.button("Defaults", use_container_width=True, help="Load example data"):
-            raw = parse_table(DEFAULT_EXAMPLE)
-            st.session_state.grid_df = _df_to_lettered(raw)
-            st.toast("Example data loaded", icon="\U0001f4cb")
+            st.session_state.grid_df = _df_to_lettered(parse_table(DEFAULT_EXAMPLE))
+            st.session_state.grid_version += 1
             st.rerun()
 
     with c2:
         if st.button("Clear", use_container_width=True, help="Clear all data"):
             st.session_state.grid_df = _make_empty_grid()
-            st.toast("Grid cleared", icon="\U0001f9f9")
+            st.session_state.grid_version += 1
             st.rerun()
 
     with c3:
@@ -402,15 +408,20 @@ def render_spreadsheet() -> Tuple[bool, Optional[pd.DataFrame]]:
             st.session_state["pdf_requested"] = True
 
     # ---- First-column selector ----
-    working = _lettered_to_original(st.session_state.grid_df)
+    # Reuse the `working` DataFrame already computed for the Save button.
     if not working.empty and len(working.columns) > 0:
         col_options = list(range(len(working.columns)))
+        # Persist selection across reruns
+        saved_idx = st.session_state.get("first_col_idx", 0)
+        if saved_idx >= len(col_options):
+            saved_idx = 0
         first_col_idx = st.select_slider(
             "First age column",
             options=col_options,
-            value=0,
+            value=saved_idx,
             format_func=lambda i: f"{_col_letter(i)} \u2014 {working.columns[i]}",
             help="Select which column contains the first age data. The next column is treated as sigma.",
+            key="first_col_slider",
         )
     else:
         first_col_idx = 0
