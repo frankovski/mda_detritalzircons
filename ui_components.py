@@ -73,6 +73,14 @@ def _grid_data_to_df(data: list) -> pd.DataFrame:
     if not data or len(data) < 2:
         return pd.DataFrame()
     headers = [str(h) if h is not None else f"col_{i}" for i, h in enumerate(data[0])]
+    # Deduplicate column names (PyArrow / st.dataframe rejects duplicates)
+    seen: dict = {}
+    for i, h in enumerate(headers):
+        if h in seen:
+            seen[h] += 1
+            headers[i] = f"{h}_{seen[h]}"
+        else:
+            seen[h] = 0
     rows = data[1:]
     df = pd.DataFrame(rows, columns=headers)
     # Drop fully-empty columns and rows
